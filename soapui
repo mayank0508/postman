@@ -1,0 +1,83 @@
+import groovy.json.JsonSlurper
+import groovy.xml.XmlSlurper
+import org.apache.commons.io.FileUtils
+ 
+// List of policy numbers to request
+def policyNumbers = ["0000000005800589","0000000002170161"]
+ 
+// Get the REST request step
+def requestStep = testRunner.testCase.getTestStepByName("GETPDF 1 - Request 1-Bulk")
+ 
+// Directory to save PDF files (change this path as needed)
+def saveDirectory = "C:/Users/75891/Downloads"
+ 
+// Ensure the directory exists
+new File(saveDirectory).mkdirs()
+ 
+policyNumbers.each { policyNum ->
+ 
+    // Prepare JSON request body
+    def requestBody = """
+    {
+        "PolicyNumber": "${policyNum}",
+        "Regeneration": "Y",
+        "SourceSystem": "InsureMo",
+        "IntermediateCode": "",
+        "ProductName": "",
+        "Offline": "N"
+    }
+    """
+    // Log the request body for debugging
+    log.info("Request Body for ${policyNum}: " + requestBody)
+    // Set the request body
+    requestStep.getHttpRequest().setRequestContent(requestBody)
+    // Run the request
+    def response = requestStep.run(testRunner, context).responseContent
+    // Log the raw response for debugging
+    log.info("Raw Response for ${policyNum}: " + response)
+    // Check if the response is empty
+    if (!response) {
+        log.error "Empty response received for policy number: ${policyNum}"
+        return
+    }
+    // Clean the response (remove leading/trailing whitespace)
+    def cleanedResponse = response.trim()
+    // Check if the response is XML or JSON
+    if (cleanedResponse.startsWith("<")) {
+        // Parse the XML response
+        try {
+            def xmlResponse = new XmlSlurper().parseText(cleanedResponse)
+            def base64Pdf = xmlResponse.pdfContent.text()
+            if (base64Pdf) {
+                // Convert Base64 to a PDF file
+                def pdfBytes = base64Pdf.decodeBase64()
+                def filePath = saveDirectory + "/${policyNum}.pdf"
+                FileUtils.writeByteArrayToFile(new File(filePath), pdfBytes)
+                log.info "PDF saved: ${filePath}"
+            } else {
+                log.error "No PDF content found for policy number: ${policyNum}"
+            }
+        } catch (Exception e) {
+            log.error "Failed to parse XML response for policy number: ${policyNum}. Error: ${e.message}"
+        }
+    } else if (cleanedResponse.startsWith("{")) {
+        // Parse the JSON response
+        try {
+            def jsonResponse = new JsonSlurper().parseText(cleanedResponse)
+            def base64Pdf = jsonResponse.pdfContent
+            if (base64Pdf) {
+                // Convert Base64 to a PDF file
+                def pdfBytes = base64Pdf.decodeBase64()
+                def filePath = saveDirectory + "/${policyNum}.pdf"
+                FileUtils.writeByteArrayToFile(new File(filePath), pdfBytes)
+                log.info "PDF saved: ${filePath}"
+            } else {
+                log.error "No PDF content found for policy number: ${policyNum}"
+            }
+        } catch (Exception e) {
+            log.error "Failed to parse JSON response for policy number: ${policyNum}. Error: ${e.message}"
+        }
+    } else {
+        log.error "Unsupported response format for policy number: ${policyNum}"
+    }
+}
